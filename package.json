@@ -1,0 +1,9 @@
+{
+  "name": "validanfe",
+  "version": "1.0.0",
+  "description": "ValidaNFe \u2014 Consulta de NF-e via SERPRO API",
+  "private": true,
+  "engines": {
+    "node": "18.x"
+  }
+}

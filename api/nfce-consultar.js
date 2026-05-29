@@ -11,11 +11,12 @@ const SVRS_NFCE = ['11','12','13','14','15','16','17','21','22',
   '43','50','51','52','53'];
 
 // URL base SVRS NFC-e (diferente da NF-e)
-const urlSVRS = 'https://nfce.svrs.rs.gov.br/ws/NfceConsultaProtocolo/NfceConsultaProtocolo4.asmx';
+const urlSVRS = 'https://nfce.svrs.rs.gov.br/ws/NfceConsultaProtocolo4/NfceConsultaProtocolo4.asmx';
 
-// SP usa endpoint próprio para NFC-e
+// SP e PR usam endpoints próprios para NFC-e
 const NFC_ENDPOINTS = {
-  '35': 'https://nfce.fazenda.sp.gov.br/ws/NfceConsultaProtocolo4.asmx'
+  '35': 'https://nfce.fazenda.sp.gov.br/ws/NfceConsultaProtocolo4.asmx',
+  '41': 'https://nfce.fazenda.pr.gov.br/nfce-ws/services/NfceConsultaProtocolo4',
 };
 
 function getUrl(cUF) {
@@ -87,7 +88,7 @@ export default async function handler(req, res) {
     });
 
     const { status, body: xml } = await httpsPost(url, soap, agent);
-    console.log('[NFC-e] SOAP status:', status);
+    console.log('[NFC-e] HTTP status:', status, 'URL:', url);
 
     if (status !== 200)
       return res.status(200).json({ cStat: 'ERR', xMotivo: `SEFAZ HTTP ${status}`, nProt: '', dhRecbto: '' });

@@ -1060,14 +1060,12 @@ async function consultarNFe_SERPRO(chave){
     }
 
     const token = await serpGetToken();
-    const isNFCe = chave.slice(20, 22) === '65';
-    const tipo   = isNFCe ? 'nfce' : 'nfe';
     // Endpoints confirmados via documentação "Já Contratou?" do SERPRO
-    // Produção: https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df/api/v1/{tipo}/{chave}
-    // Trial   : https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df-trial/api/v1/{tipo}/{chave}
+    // Produção: https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df/api/v1/nfe/{chave}
+    // Trial   : https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df-trial/api/v1/nfe/{chave}
     const base = S.cfg.serpAmb==='prod'
-      ? `https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df/api/v1/${tipo}/`
-      : `https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df-trial/api/v1/${tipo}/`;
+      ? 'https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df/api/v1/nfe/'
+      : 'https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df-trial/api/v1/nfe/';
     const res = await fetch('/api/serpro-consultar',{
       method:'POST',
       headers:{'Content-Type':'application/json'},

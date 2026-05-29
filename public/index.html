@@ -62,6 +62,12 @@ body::after{content:'';position:fixed;inset:0;background:
 .btn-lg{padding:12px 24px;font-size:1rem;border-radius:var(--r2);}
 .btn-icon{padding:7px;min-width:34px;justify-content:center;}
 
+/* VIEW TOGGLE */
+.view-toggle-wrap{display:inline-flex;background:var(--card2);border:1px solid var(--border2);border-radius:var(--r);overflow:hidden;}
+.view-btn{padding:6px 16px;background:transparent;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:.8rem;font-weight:600;color:var(--text2);transition:all .15s;}
+.view-btn.active{background:#fff;color:var(--btn-text);}
+.view-btn:not(.active):hover{background:rgba(255,255,255,0.08);color:var(--text);}
+
 /* MAIN */
 .main{max-width:1080px;margin:0 auto;padding:2rem 1.5rem;position:relative;z-index:1;}
 
@@ -444,10 +450,18 @@ code{background:var(--bg2);padding:2px 6px;border-radius:4px;font-family:'DM Mon
         <button class="btn btn-ghost btn-sm" onclick="clearFilter()">✕ Limpar</button>
       </div>
 
+      <!-- View mode toggle -->
+      <div id="view-toggle" style="display:none;margin-bottom:.75rem;">
+        <div class="view-toggle-wrap">
+          <button class="view-btn active" id="btn-view-nfe" onclick="setViewMode('nfe')">Por NF-e</button>
+          <button class="view-btn" id="btn-view-prod" onclick="setViewMode('produto')">Por Produto</button>
+        </div>
+      </div>
+
       <!-- Results table -->
       <div class="table-wrap" id="res-tbl-wrap" style="display:none;">
         <table id="res-table" style="table-layout:fixed;">
-          <thead>
+          <thead id="res-thead">
             <tr>
               <th style="width:38px;">#</th>
               <th style="width:130px;">Chave de Acesso</th>
@@ -467,7 +481,7 @@ code{background:var(--bg2);padding:2px 6px;border-radius:4px;font-family:'DM Mon
         </table>
       </div>
       <div id="tbl-footer" style="display:none;padding:.6rem 1rem;font-size:.78rem;color:var(--muted);border-top:1px solid var(--border);">
-        Exibindo <span id="tbl-shown">0</span> de <span id="tbl-total">0</span> notas
+        Exibindo <span id="tbl-shown">0</span> de <span id="tbl-total">0</span> <span id="tbl-unit">notas</span>
       </div>
 
       <!-- Detail modal panel -->
@@ -635,7 +649,8 @@ const S = {
     serpToken: null, serpTokenExp: 0
   },
   busy: false,
-  filtered: null
+  filtered: null,
+  viewMode: 'nfe'
 };
 
 // init
@@ -695,7 +710,8 @@ function dp(e,type){
   const id=type==='cert'?'cz':'rz';
   document.getElementById(id).classList.remove('drag-over');
   const f=e.dataTransfer.files[0]; if(!f)return;
-  type==='cert'?procCertFile(f):procReportFile(f);
+  if(type==='cert') return; // certificado digital removido — use SERPRO API
+  procReportFile(f);
 }
 function onCertFile(e){} // removed
 function onReportFile(e){const f=e.target.files[0];if(f)procReportFile(f);}
@@ -936,7 +952,6 @@ function xmlTag(xml, tag){
 
 function parseSOAP(xml){
   try{
-    console.log('[SEFAZ RAW]', xml.slice(0,600));
     return{
       cStat   : xmlTag(xml,'cStat'),
       xMotivo : xmlTag(xml,'xMotivo'),
@@ -1055,7 +1070,7 @@ async function consultarNFe_SERPRO(chave){
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({token, chave, base}),
-      signal: AbortSignal.timeout(25000) // 25s: proxy tem 20s + 5s de margem
+      signal: AbortSignal.timeout(15000) // 15s: inclui margem sobre timeout do serverless (8s)
     });
     if(!res.ok){const e=await res.json().catch(()=>({}));return{cStat:'ERR',xMotivo:e.error||`HTTP ${res.status}`};}
     const data = await res.json();
@@ -1068,6 +1083,8 @@ async function consultarNFe_SERPRO(chave){
 
 async function consultarNFe(chave, k){
   if(S.cfg.mode==='serpro') return consultarNFe_SERPRO(chave);
+  if(!S.cert?.pfxBase64||!S.cert?.password)
+    return{cStat:'ERR',xMotivo:'Certificado não carregado — use modo SERPRO'};
   try{
     const res=await fetch(S.cfg.proxyUrl,{
       method:'POST',
@@ -1077,7 +1094,6 @@ async function consultarNFe(chave, k){
     });
     if(!res.ok){const e=await res.json().catch(()=>({}));return{cStat:'ERR',xMotivo:e.error||`HTTP ${res.status}`};}
     const rawXml = await res.text();
-    console.log('[SEFAZ FULL XML]', rawXml);
     const parsed = parseSOAP(rawXml);
     // Se cStat ainda vazio, armazena XML bruto para debug
     if(!parsed.cStat) parsed._rawXml = rawXml;
@@ -1092,6 +1108,7 @@ async function consultarNFe(chave, k){
 // CONSULTATION LOOP
 // ─────────────────────────────────────────────────────────
 async function startConsulta(){
+  if(S.busy){toast('Consulta já em andamento...','warn');return;}
   // SERPRO only — no cert needed
   if(!S.keys.length){toast('Nenhuma chave para consultar','err');return;}
   S.busy=true; S.results=[]; S.filtered=null;
@@ -1103,6 +1120,7 @@ async function startConsulta(){
   document.getElementById('btn-exp').style.display='none';
   document.getElementById('btn-exp-filter').style.display='none';
   document.getElementById('search-bar').style.display='none';
+  document.getElementById('view-toggle').style.display='none';
   document.getElementById('tbl-footer').style.display='none';
   document.getElementById('detail-panel').style.display='none';
 
@@ -1128,32 +1146,45 @@ async function startConsulta(){
     }
   };
 
-  for(let i=0; i<total; i+=BATCH){
-    const batch = S.keys.slice(i, i+BATCH);
-    const batchResults = await Promise.all(
-      batch.map(k => consultarNFe(k.chave, k).then(r => ({chave:k.chave, decoded:k.decoded, ...r})))
-    );
-    S.results.push(...batchResults);
-    done += batch.length;
-    updProg();
-    renderResTable();
-    // SERPRO: pausa entre lotes para evitar rate limit
-    const batchDelay = S.cfg.mode==='serpro' ? Math.max(300, S.cfg.delay) : S.cfg.delay;
-    if(i+BATCH<total && batchDelay>0) await sleep(batchDelay);
-  }
+  try{
+    for(let i=0; i<total; i+=BATCH){
+      const batch = S.keys.slice(i, i+BATCH);
+      const settled = await Promise.allSettled(
+        batch.map(k => consultarNFe(k.chave, k).then(r => ({chave:k.chave, decoded:k.decoded, ...r})))
+      );
+      const batchResults = settled.map((s,bi) =>
+        s.status==='fulfilled' ? s.value :
+        {chave:batch[bi].chave, decoded:batch[bi].decoded, cStat:'ERR', xMotivo:s.reason?.message||'Erro desconhecido'}
+      );
+      S.results.push(...batchResults);
+      done += batch.length;
+      updProg();
+      renderResTable();
+      // SERPRO: pausa entre lotes para evitar rate limit
+      const batchDelay = S.cfg.mode==='serpro' ? Math.max(300, S.cfg.delay) : S.cfg.delay;
+      if(i+BATCH<total && batchDelay>0) await sleep(batchDelay);
+    }
 
-  document.getElementById('prog-txt').textContent = `✅ Concluído — ${total} nota(s) verificada(s)`;
-  document.getElementById('prog-eta').textContent = `Tempo total: ${((Date.now()-startTs)/1000).toFixed(1)}s`;
-  renderResStats();
-  document.getElementById('res-stats').style.display='grid';
-  document.getElementById('btn-exp').style.display='flex';
-  document.getElementById('btn-exp-filter').style.display='flex';
-  document.getElementById('search-bar').style.display='flex';
-  document.getElementById('tbl-footer').style.display='block';
-  applyFilter();
-  S.busy=false;
-  document.getElementById('btn-consultar').disabled=false;
-  toast(`Consulta concluída! ${total} nota(s) processada(s)`,'ok');
+    document.getElementById('prog-txt').textContent = `✅ Concluído — ${total} nota(s) verificada(s)`;
+    document.getElementById('prog-eta').textContent = `Tempo total: ${((Date.now()-startTs)/1000).toFixed(1)}s`;
+    renderResStats();
+    document.getElementById('res-stats').style.display='grid';
+    document.getElementById('btn-exp').style.display='flex';
+    document.getElementById('btn-exp-filter').style.display='flex';
+    document.getElementById('search-bar').style.display='flex';
+    document.getElementById('view-toggle').style.display='block';
+    document.getElementById('tbl-footer').style.display='block';
+    S.viewMode='nfe';
+    document.getElementById('btn-view-nfe').classList.add('active');
+    document.getElementById('btn-view-prod').classList.remove('active');
+    applyFilter();
+    toast(`Consulta concluída! ${total} nota(s) processada(s)`,'ok');
+  }catch(err){
+    toast('Erro inesperado na consulta: '+err.message,'err');
+  }finally{
+    S.busy=false;
+    document.getElementById('btn-consultar').disabled=false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1187,12 +1218,13 @@ function applyFilter(){
       const matchSt = !st || r.cStat===st || (st==='ERR'&&['ERR','PROXY','SERP'].includes(r.cStat));
       if(!matchSt) return false;
       if(!q) return true;
+      const detsHay = getDetItems(r).map(d=>`${d.prod?.cProd||''} ${d.prod?.xProd||''}`).join(' ');
       const hay = [
         r.xNomeEmit||'', r.xNomeDest||'',
         (r.produtos||[]).join(' '),
         r.decoded?.cnpj||'', r.decoded?.nNF||'',
         r.decoded?.uf||'', r.ufEmit||'',
-        r.chave||''
+        r.chave||'', detsHay
       ].join(' ').toLowerCase();
       return hay.includes(q);
     });
@@ -1207,6 +1239,13 @@ function clearFilter(){
   renderResTable();
 }
 
+function setViewMode(mode){
+  S.viewMode = mode;
+  document.getElementById('btn-view-nfe').classList.toggle('active', mode==='nfe');
+  document.getElementById('btn-view-prod').classList.toggle('active', mode==='produto');
+  renderResTable();
+}
+
 function fmtBRL(v){ return v>0?'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'; }
 function fmtDt(s){
   if(!s) return '—';
@@ -1217,6 +1256,79 @@ function fmtDt(s){
 function renderResTable(){
   const list = S.filtered || S.results;
   document.getElementById('res-tbl-wrap').style.display='block';
+
+  if(S.viewMode === 'produto'){
+    document.getElementById('res-thead').innerHTML = `<tr>
+      <th style="width:38px;">#</th>
+      <th style="width:80px;">Nº NF-e</th>
+      <th style="width:180px;">Emitente</th>
+      <th style="width:48px;">UF</th>
+      <th style="width:90px;">Emissão</th>
+      <th style="width:80px;">Cód.</th>
+      <th style="width:220px;">Produto</th>
+      <th style="width:70px;">Qtd</th>
+      <th style="width:60px;">Un</th>
+      <th style="width:100px;">Vl. Unit.</th>
+      <th style="width:100px;">Vl. Total</th>
+    </tr>`;
+    let rowNum = 0;
+    document.getElementById('res-tbody').innerHTML = list.flatMap(r=>{
+      const d   = r.decoded||{};
+      const dt  = fmtDt(r.dhEmi || r.dhRecbto || '');
+      const uf  = r.ufEmit || d.uf || '—';
+      const nNF = r.nNF || d.nNF || '—';
+      const emit= r.xNomeEmit || d.cnpj || '—';
+      const dets = getDetItems(r);
+      if(!dets.length) return [`<tr>
+        <td class="num">${++rowNum}</td>
+        <td class="mono" style="font-size:.78rem;">${nNF}</td>
+        <td style="font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;" title="${emit}">${emit}</td>
+        <td>${uf}</td>
+        <td style="font-size:.78rem;">${dt}</td>
+        <td colspan="6" style="color:var(--muted);font-size:.78rem;">Sem itens disponíveis</td>
+      </tr>`];
+      return dets.map(det=>{
+        const p = det.prod||{};
+        return`<tr>
+          <td class="num">${++rowNum}</td>
+          <td class="mono" style="font-size:.78rem;">${nNF}</td>
+          <td style="font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;" title="${emit}">${emit}</td>
+          <td>${uf}</td>
+          <td style="font-size:.78rem;">${dt}</td>
+          <td class="mono" style="font-size:.78rem;">${p.cProd||'—'}</td>
+          <td style="font-size:.80rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="${p.xProd||''}">${p.xProd||'—'}</td>
+          <td style="font-size:.78rem;white-space:nowrap;">${parseFloat(p.qCom||0)||'—'}</td>
+          <td style="font-size:.78rem;">${p.uCom||'—'}</td>
+          <td style="font-size:.78rem;white-space:nowrap;">${fmtBRL(parseFloat(p.vUnCom||0))}</td>
+          <td style="font-size:.82rem;font-weight:600;color:var(--text);white-space:nowrap;">${fmtBRL(parseFloat(p.vProd||0))}</td>
+        </tr>`;
+      });
+    }).join('');
+    document.getElementById('tbl-shown').textContent = rowNum;
+    document.getElementById('tbl-total').textContent = list.reduce((s,r)=>s+Math.max(getDetItems(r).length,1),0);
+    document.getElementById('tbl-unit').textContent = 'itens';
+    document.getElementById('tbl-footer').style.display = 'block';
+    const sc = document.getElementById('srch-count');
+    if(sc) sc.textContent = S.filtered ? `${list.length} NF-e(s) filtrada(s)` : `${S.results.length} NF-e(s)`;
+    requestAnimationFrame(()=>initResizableCols('res-table'));
+    return;
+  }
+
+  // ── NF-e mode ──
+  document.getElementById('res-thead').innerHTML = `<tr>
+    <th style="width:38px;">#</th>
+    <th style="width:130px;">Chave de Acesso</th>
+    <th style="width:200px;">Emitente</th>
+    <th style="width:48px;">UF</th>
+    <th style="width:80px;">Nº NF-e</th>
+    <th style="width:90px;">Emissão</th>
+    <th style="width:220px;">Produto(s)</th>
+    <th style="width:80px;">Qtd</th>
+    <th style="width:110px;">Valor Total</th>
+    <th style="width:110px;">Situação</th>
+    <th style="width:130px;">Protocolo</th>
+    <th style="width:36px;"></th>
+  </tr>`;
   document.getElementById('res-tbody').innerHTML = list.map((r,i)=>{
     const d   = r.decoded||{};
     const dt  = fmtDt(r.dhEmi || r.dhRecbto || '');
@@ -1243,15 +1355,13 @@ function renderResTable(){
       <td><button class="btn btn-ghost btn-icon btn-sm" onclick="showDetail(${idx})" title="Ver detalhes">🔎</button></td>
     </tr>`;
   }).join('');
-  // footer count
   const shown = list.length, total = S.results.length;
   document.getElementById('tbl-shown').textContent = shown;
   document.getElementById('tbl-total').textContent  = total;
+  document.getElementById('tbl-unit').textContent = 'notas';
   document.getElementById('tbl-footer').style.display = 'block';
-  // search count
   const sc = document.getElementById('srch-count');
   if(sc) sc.textContent = S.filtered ? `${shown} resultado(s)` : `${total} nota(s)`;
-  // init resizable columns (deferred to avoid blocking render)
   requestAnimationFrame(()=>initResizableCols('res-table'));
 }
 
@@ -1347,6 +1457,35 @@ function showDetail(i){
 const SM = {'100':'Autorizada','101':'Cancelada','110':'Denegada','217':'Nao encontrada',
             'ERR':'Erro','PROXY':'Proxy offline','SERP':'Cred. SERPRO'};
 
+function getDetItems(r){
+  const raw = r._raw?.nfeProc?.NFe?.infNFe?.det;
+  if(!raw) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
+function buildRowsProduto(list){
+  const hdr = ['#','N NF-e','Emitente','UF','Emissao','Cod. Produto','Produto','Qtd','Unid','Vl. Unitario (R$)','Vl. Total Item (R$)'];
+  const rows = [hdr];
+  let n = 0;
+  list.forEach(r=>{
+    const d = r.decoded||{};
+    const nNF = r.nNF||d.nNF||'';
+    const emit = r.xNomeEmit||'';
+    const uf = r.ufEmit||d.uf||'';
+    const dt = r.dhEmi ? new Date(r.dhEmi).toLocaleDateString('pt-BR') : (d.dataEmissao||'');
+    const dets = getDetItems(r);
+    if(!dets.length){
+      rows.push([++n,nNF,emit,uf,dt,'','','','','','']);
+    } else {
+      dets.forEach(det=>{
+        const p = det.prod||{};
+        rows.push([++n,nNF,emit,uf,dt,p.cProd||'',p.xProd||'',parseFloat(p.qCom||0)||'',p.uCom||'',parseFloat(p.vUnCom||0)||'',parseFloat(p.vProd||0)||'']);
+      });
+    }
+  });
+  return rows;
+}
+
 function buildRows(list){
   const hdr = ['#','Chave de Acesso','Emitente','CNPJ Emitente','UF Emitente',
     'Destinatario','CNPJ/CPF Dest.','N NF-e','Serie','Modelo','Emissao',
@@ -1381,22 +1520,26 @@ function buildRows(list){
 function exportar(mode='all'){
   const list = mode==='filtered' && S.filtered ? S.filtered : S.results;
   if(!list.length){toast('Nenhum dado para exportar','err');return;}
-  const rows = buildRows(list);
+  const isProd = S.viewMode === 'produto';
+  const rows = isProd ? buildRowsProduto(list) : buildRows(list);
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:4},{wch:46},{wch:30},{wch:20},{wch:5},{wch:28},{wch:20},
-    {wch:10},{wch:6},{wch:10},{wch:12},{wch:40},{wch:14},{wch:14},
-    {wch:6},{wch:16},{wch:22},{wch:22}];
-  // Style header row
+  if(isProd){
+    ws['!cols']=[{wch:4},{wch:12},{wch:30},{wch:5},{wch:12},{wch:14},{wch:40},{wch:10},{wch:6},{wch:16},{wch:16}];
+  } else {
+    ws['!cols']=[{wch:4},{wch:46},{wch:30},{wch:20},{wch:5},{wch:28},{wch:20},
+      {wch:10},{wch:6},{wch:10},{wch:12},{wch:40},{wch:14},{wch:14},
+      {wch:6},{wch:16},{wch:22},{wch:22}];
+  }
   const range = XLSX.utils.decode_range(ws['!ref']);
   for(let C=range.s.c; C<=range.e.c; C++){
     const cell = ws[XLSX.utils.encode_cell({r:0,c:C})];
     if(cell) cell.s = {font:{bold:true},fill:{fgColor:{rgb:'0F2845'}},font:{color:{rgb:'FFFFFF'},bold:true}};
   }
-  const suffix = mode==='filtered' ? '_filtrado' : '';
-  XLSX.utils.book_append_sheet(wb, ws, 'Resultado SEFAZ');
+  const suffix = (mode==='filtered' ? '_filtrado' : '') + (isProd ? '_porProduto' : '');
+  XLSX.utils.book_append_sheet(wb, ws, isProd ? 'Por Produto' : 'Resultado SEFAZ');
   XLSX.writeFile(wb, `validanfe${suffix}_${new Date().toISOString().slice(0,10)}.xlsx`);
-  toast(`Exportado: ${list.length} nota(s)`,'ok');
+  toast(`Exportado: ${rows.length-1} linha(s)`,'ok');
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1433,9 +1576,9 @@ function updStepper(){
 // CONFIG
 // ─────────────────────────────────────────────────────────
 function saveConfig(){
-  S.cfg.proxyUrl=document.getElementById('cfg-proxy').value||'http://localhost:3000/consultar';
-  S.cfg.serpKey=document.getElementById('cfg-serp-key').value||'';
-  S.cfg.serpSecret=document.getElementById('cfg-serp-secret').value||'';
+  S.cfg.proxyUrl=(document.getElementById('cfg-proxy').value||'http://localhost:3000/consultar').trim();
+  S.cfg.serpKey=(document.getElementById('cfg-serp-key').value||'').trim();
+  S.cfg.serpSecret=(document.getElementById('cfg-serp-secret').value||'').trim();
   S.cfg.mode='serpro';
   // reset token cache on credential change
   S.cfg.serpToken=null; S.cfg.serpTokenExp=0;
@@ -1454,10 +1597,12 @@ function activateDemoMode(){
 
 function setMode(m){
   S.cfg.mode=m;
-  document.getElementById('btn-mode-sefaz-removed').className='btn '+(m==='sefaz'?'btn-primary':'btn-ghost');
-  document.getElementById('btn-mode-serpro-removed').className='btn '+(m==='serpro'?'btn-primary':'btn-ghost');
+  const bSefaz=document.getElementById('btn-mode-sefaz-removed');
+  const bSerp=document.getElementById('btn-mode-serpro-removed');
+  if(bSefaz) bSefaz.className='btn '+(m==='sefaz'?'btn-primary':'btn-ghost');
+  if(bSerp)  bSerp.className='btn '+(m==='serpro'?'btn-primary':'btn-ghost');
   (document.getElementById('cfg-sefaz-block') || {style:{}}).style.display=m==='sefaz'?'block':'none';
-  document.getElementById('cfg-serpro-block').style.display=m==='serpro'?'block':'none';
+  (document.getElementById('cfg-serpro-block') || {style:{}}).style.display=m==='serpro'?'block':'none';
   // update button label
   const bConsultar = document.getElementById('btn-consultar');
   if(bConsultar) bConsultar.textContent = 'Consultar via SERPRO →';

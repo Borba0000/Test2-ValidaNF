@@ -3,28 +3,29 @@
 
 import https from 'node:https';
 
-const SVRS = 'https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx';
-const SVAN = 'https://www.nfe.fazenda.gov.br/NFeConsultaProtocolo4/NFeConsultaProtocolo4.asmx';
-const SOAP_ACTION = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsultaProtocolo4/nfeConsultaNF';
+const SOAP_ACTION = 'http://www.portalfiscal.inf.br/nfe/wsdl/NfceConsultaProtocolo4/nfceConsultaNF';
 
-// AC, AL, AP, DF, MS, PB, PI, RN, RO, RR, SE
-const SVRS_UF = new Set(['11','12','14','16','22','24','25','27','28','50','53']);
+// Estados que usam SVRS para NFC-e
+const SVRS_NFCE = ['11','12','13','14','15','16','17','21','22',
+  '23','24','25','26','27','28','29','31','32','33','41','42',
+  '43','50','51','52','53'];
 
-const WS = {
-  '35': 'https://nfe.fazenda.sp.gov.br/ws/nfeConsultaProtocolo4.asmx',
-  '13': 'https://nfe.sefaz.am.gov.br/services2/NfeConsulta2',
-  '51': 'https://nfe.sefaz.mt.gov.br/nfews/v2/services/NfeConsulta2',
-  '29': 'https://nfe.sefaz.ba.gov.br/webservices/NFeConsultaProtocolo4/NFeConsultaProtocolo4.asmx',
+// URL base SVRS NFC-e (diferente da NF-e)
+const urlSVRS = 'https://nfce.svrs.rs.gov.br/ws/NfceConsultaProtocolo/NfceConsultaProtocolo4.asmx';
+
+// SP usa endpoint próprio para NFC-e
+const NFC_ENDPOINTS = {
+  '35': 'https://nfce.fazenda.sp.gov.br/ws/NfceConsultaProtocolo4.asmx'
 };
 
 function getUrl(cUF) {
-  if (WS[cUF]) return WS[cUF];
-  if (SVRS_UF.has(cUF)) return SVRS;
-  return SVAN;
+  const url = NFC_ENDPOINTS[cUF] || urlSVRS;
+  console.log('[NFC-e] cUF:', cUF, '→ URL:', url);
+  return url;
 }
 
 function buildSOAP(chave, cUF) {
-  const ns = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsultaProtocolo4';
+  const ns = 'http://www.portalfiscal.inf.br/nfe/wsdl/NfceConsultaProtocolo4';
   return `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Header><nfeCabecMsg xmlns="${ns}"><cUF>${cUF}</cUF><versaoDados>4.00</versaoDados></nfeCabecMsg></soap12:Header><soap12:Body><nfeDadosMsg xmlns="${ns}"><consSitNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>1</tpAmb><xServ>CONSULTAR</xServ><chNFe>${chave}</chNFe></consSitNFe></nfeDadosMsg></soap12:Body></soap12:Envelope>`;
 }
 
@@ -44,7 +45,7 @@ function httpsPost(url, body, agent) {
       method  : 'POST',
       agent,
       headers : {
-        'Content-Type'  : 'application/soap+xml; charset=utf-8',
+        'Content-Type'  : `application/soap+xml; charset=utf-8; action="${SOAP_ACTION}"`,
         'Content-Length': bodyBuf.length,
         'SOAPAction'    : SOAP_ACTION,
       },
@@ -86,6 +87,7 @@ export default async function handler(req, res) {
     });
 
     const { status, body: xml } = await httpsPost(url, soap, agent);
+    console.log('[NFC-e] SOAP status:', status);
 
     if (status !== 200)
       return res.status(200).json({ cStat: 'ERR', xMotivo: `SEFAZ HTTP ${status}`, nProt: '', dhRecbto: '' });

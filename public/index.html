@@ -1061,22 +1061,40 @@ async function consultarNFe_SERPRO(chave){
 
     const token = await serpGetToken();
     const isNFCe = chave.slice(20, 22) === '65';
-    const tipo   = isNFCe ? 'nfce' : 'nfe';
-    // Endpoints confirmados via documentação "Já Contratou?" do SERPRO
-    // Produção: https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df/api/v1/{tipo}/{chave}
-    // Trial   : https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df-trial/api/v1/{tipo}/{chave}
-    const base = S.cfg.serpAmb==='prod'
-      ? `https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df/api/v1/${tipo}/`
-      : `https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df-trial/api/v1/${tipo}/`;
-    const res = await fetch('/api/serpro-consultar',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({token, chave, base}),
-      signal: AbortSignal.timeout(15000) // 15s: inclui margem sobre timeout do serverless (8s)
-    });
-    if(!res.ok){const e=await res.json().catch(()=>({}));return{cStat:'ERR',xMotivo:e.error||`HTTP ${res.status}`};}
-    const data = await res.json();
-    return parseSERPROData(data, chave);
+    const baseRoot = S.cfg.serpAmb==='prod'
+      ? 'https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df/api/v1/'
+      : 'https://gateway.apiserpro.serpro.gov.br/consulta-nfe-df-trial/api/v1/';
+
+    const callBase = async (tipo) => {
+      const base = `${baseRoot}${tipo}/`;
+      const res = await fetch('/api/serpro-consultar',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({token, chave, base}),
+        signal: AbortSignal.timeout(15000) // 15s: inclui margem sobre timeout do serverless (8s)
+      });
+      if(!res.ok){const e=await res.json().catch(()=>({}));return{ok:false,cStat:'ERR',xMotivo:e.error||`HTTP ${res.status}`};}
+      const data = await res.json();
+      return{ok:true, parsed: parseSERPROData(data, chave)};
+    };
+
+    if(!isNFCe){
+      const r = await callBase('nfe');
+      return r.ok ? r.parsed : {cStat:r.cStat, xMotivo:r.xMotivo};
+    }
+
+    // NFC-e: tenta /nfce/ primeiro; fallback para /nfe/ se 404 ou cStat 217
+    const first = await callBase('nfce');
+    if(first.ok && first.parsed.cStat !== '217'){
+      return first.parsed;
+    }
+    const second = await callBase('nfe');
+    if(second.ok && second.parsed.cStat !== '217'){
+      second.parsed._nfceFallback = true;
+      return second.parsed;
+    }
+    // ambos falharam — retorna resultado do primeiro (nfce)
+    return first.ok ? first.parsed : {cStat:first.cStat, xMotivo:first.xMotivo};
   }catch(e){
     if(e.message?.includes('Credenciais')) return{cStat:'SERP',xMotivo:e.message};
     return{cStat:'ERR',xMotivo:e.message||'Erro SERPRO'};
@@ -1412,6 +1430,7 @@ function showDetail(i){
       <div style="margin-bottom:4px;">${badgeFor(r.cStat)} <span style="font-size:.82rem;color:var(--text2);margin-left:6px;">${r.xMotivo||'—'}</span></div>
       <div style="font-size:.78rem;color:var(--muted);">Protocolo: <span style="color:var(--text);font-family:'DM Mono',monospace;">${r.nProt||'—'}</span></div>
       <div style="font-size:.78rem;color:var(--muted);">Recebido: <span style="color:var(--text);">${r.dhRecbto?new Date(r.dhRecbto).toLocaleString('pt-BR'):'—'}</span></div>
+      ${r._nfceFallback?`<div style="font-size:.72rem;color:var(--muted);margin-top:6px;font-style:italic;">Consultado via endpoint NF-e (fallback)</div>`:''}
     </div>
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem;">
       <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:.5rem;">Valores</div>

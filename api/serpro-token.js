@@ -23,7 +23,7 @@ export default async function handler(req, res) {
         'Content-Type' : 'application/x-www-form-urlencoded'
       },
       body  : 'grant_type=client_credentials',
-      signal: AbortSignal.timeout(12000)
+      signal: AbortSignal.timeout(8000)
     });
 
     const data = await resp.json();
@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     return res.status(200).json(data);
 
   } catch (err) {
-    const msg = err.name === 'TimeoutError' ? 'Timeout ao obter token SERPRO' : err.message;
+    const msg = err.name === 'TimeoutError' ? 'Timeout (8s) ao obter token SERPRO' : err.message;
     return res.status(500).json({ error: msg });
   }
 }

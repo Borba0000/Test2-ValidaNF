@@ -21,7 +21,7 @@ export default async function handler(req, res) {
         'Authorization': `Bearer ${token}`,
         'Accept'       : 'application/json'
       },
-      signal: AbortSignal.timeout(20000)
+      signal: AbortSignal.timeout(8000)
     });
 
     // NF-e não encontrada
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
 
   } catch (err) {
     const msg = err.name === 'TimeoutError'
-      ? 'Timeout (20s) — SERPRO nao respondeu a tempo'
+      ? 'Timeout (8s) — SERPRO nao respondeu a tempo'
       : err.message;
     return res.status(500).json({ error: msg });
   }

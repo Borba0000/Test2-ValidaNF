@@ -330,6 +330,31 @@ code{background:var(--bg2);padding:2px 6px;border-radius:4px;font-family:'DM Mon
         </div>
       </div>
     </div>
+
+    <!-- ── NFC-e certificate (optional, collapsible) ── -->
+    <div class="card" style="margin-top:1rem;">
+      <div class="card-header" style="cursor:pointer;user-select:none;" onclick="toggleNfceSection()">
+        <div>
+          <div class="card-title" style="font-size:.95rem;">🔐 Certificado para NFC-e <span style="font-size:.8rem;font-weight:400;color:var(--text2)">(opcional)</span></div>
+          <div class="card-sub">Necessário para consultar NFC-e (modelo 65) via SEFAZ estadual</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span id="nfce-cert-badge" style="font-size:.85rem;">🔴 Não configurado</span>
+          <span id="nfce-toggle-icon" style="font-size:1rem;transition:transform .2s;display:inline-block;">▸</span>
+        </div>
+      </div>
+      <div id="nfce-cert-section" style="display:none;padding-top:.75rem;border-top:1px solid var(--border);">
+        <div class="form-group">
+          <label class="form-label">Arquivo .pfx / .p12</label>
+          <input type="file" id="nfce-pfx-file" accept=".pfx,.p12" class="form-input" onchange="onNfcePfxFile(event)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha do certificado</label>
+          <input type="password" id="nfce-pfx-pwd" class="form-input" placeholder="Senha do certificado">
+        </div>
+        <button class="btn btn-primary" onclick="loadNfceCert()">🔐 Carregar</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── STEP 2: RELATÓRIO ── -->
@@ -646,7 +671,8 @@ const S = {
     proxyUrl: '/api/consultar',
     tpAmb: '1', delay: 600,
     serpKey: '', serpSecret: '', serpAmb: 'trial',
-    serpToken: null, serpTokenExp: 0
+    serpToken: null, serpTokenExp: 0,
+    nfcePfx: null, nfcePwd: ''
   },
   busy: false,
   filtered: null,
@@ -1053,6 +1079,23 @@ function mockSERPROResponse(chave){
 }
 
 async function consultarNFe_SERPRO(chave){
+  // NFC-e (modelo 65) → SEFAZ estadual via mTLS, não usa SERPRO
+  if(chave.slice(20,22)==='65'){
+    if(!S.cfg.nfcePfx)
+      return{cStat:'NFCE',xMotivo:'Configure o certificado para consultar NFC-e'};
+    try{
+      const r=await fetch('/api/nfce-consultar',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({chave,pfxBase64:S.cfg.nfcePfx,pfxPassword:S.cfg.nfcePwd}),
+        signal:AbortSignal.timeout(20000)
+      });
+      if(!r.ok){const e=await r.json().catch(()=>({}));return{cStat:'ERR',xMotivo:e.error||`HTTP ${r.status}`};}
+      const d=await r.json();
+      return{cStat:d.cStat||'ERR',xMotivo:d.xMotivo||'',nProt:d.nProt||'',dhRecbto:d.dhRecbto||'',chNFe:chave};
+    }catch(e){return{cStat:'ERR',xMotivo:e.message||'Erro NFC-e'};}
+  }
+
   try{
     // Modo Demo — retorna mock local sem chamar o proxy
     if(S.cfg.serpAmb==='demo'){
@@ -1203,7 +1246,8 @@ const STAT_MAP={
   '302':['badge-danger','✗ Uso denegado'],
   'ERR':['badge-danger','⚠ Erro'],
   'PROXY':['badge-warning','⚠ Proxy offline'],
-  'SERP':['badge-danger','⚠ Cred. SERPRO']
+  'SERP':['badge-danger','⚠ Cred. SERPRO'],
+  'NFCE':['badge-warning','⚠ Certificado NFC-e não configurado']
 };
 
 function badgeFor(cStat){
@@ -1650,6 +1694,39 @@ function updStep1UI(){
     ambBadge.textContent = lbl;
     ambBadge.className = cls;
   }
+}
+
+// ─────────────────────────────────────────────────────────
+// NFC-e CERTIFICATE
+// ─────────────────────────────────────────────────────────
+function toggleNfceSection(){
+  const section = document.getElementById('nfce-cert-section');
+  const icon    = document.getElementById('nfce-toggle-icon');
+  const open    = section.style.display === 'none';
+  section.style.display = open ? 'block' : 'none';
+  icon.style.transform  = open ? 'rotate(90deg)' : '';
+}
+
+function onNfcePfxFile(e){
+  S._nfcePfxFile = e.target.files[0] || null;
+}
+
+function loadNfceCert(){
+  const file = S._nfcePfxFile;
+  const pwd  = (document.getElementById('nfce-pfx-pwd').value || '').trim();
+  if(!file) return alert('Selecione um arquivo .pfx ou .p12');
+  if(!pwd)  return alert('Informe a senha do certificado');
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const bytes = new Uint8Array(ev.target.result);
+    let binary  = '';
+    for(let i=0;i<bytes.byteLength;i++) binary += String.fromCharCode(bytes[i]);
+    S.cfg.nfcePfx = btoa(binary);
+    S.cfg.nfcePwd = pwd;
+    const badge = document.getElementById('nfce-cert-badge');
+    if(badge){ badge.textContent = '🟢 Certificado carregado'; badge.style.color = 'var(--ok,#22c55e)'; }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 // ─────────────────────────────────────────────────────────

@@ -980,7 +980,8 @@ async function serpGetToken(){
   const res = await fetch('/api/serpro-token',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({consumerKey:key, consumerSecret:sec})
+    body: JSON.stringify({consumerKey:key, consumerSecret:sec}),
+    signal: AbortSignal.timeout(12000)
   });
   if(!res.ok) throw new Error(`Token SERPRO: HTTP ${res.status}`);
   const data = await res.json();
@@ -1072,7 +1073,11 @@ async function consultarNFe_SERPRO(chave){
       body: JSON.stringify({token, chave, base}),
       signal: AbortSignal.timeout(15000) // 15s: inclui margem sobre timeout do serverless (8s)
     });
-    if(!res.ok){const e=await res.json().catch(()=>({}));return{cStat:'ERR',xMotivo:e.error||`HTTP ${res.status}`};}
+    if(!res.ok){
+      const e=await res.json().catch(()=>({}));
+      if(res.status===401){S.cfg.serpToken=null;S.cfg.serpTokenExp=0;}
+      return{cStat:'ERR',xMotivo:e.error||`HTTP ${res.status}`};
+    }
     const data = await res.json();
     return parseSERPROData(data, chave);
   }catch(e){

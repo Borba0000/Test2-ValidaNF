@@ -483,6 +483,9 @@ code{background:var(--bg2);padding:2px 6px;border-radius:4px;font-family:'DM Mon
         </div>
       </div>
 
+      <!-- Product counter (shown in produto mode only) -->
+      <div id="prod-counter" style="display:none;font-size:.82rem;color:var(--text2);margin-bottom:.5rem;padding:.1rem 0;"></div>
+
       <!-- Results table -->
       <div class="table-wrap" id="res-tbl-wrap" style="display:none;">
         <table id="res-table" style="table-layout:fixed;">
@@ -1319,6 +1322,8 @@ function renderResTable(){
       <th style="width:60px;">Un</th>
       <th style="width:100px;">Vl. Unit.</th>
       <th style="width:100px;">Vl. Total</th>
+      <th style="width:130px;">Chave de Acesso</th>
+      <th style="width:110px;">Ação</th>
     </tr>`;
     let rowNum = 0;
     document.getElementById('res-tbody').innerHTML = list.flatMap(r=>{
@@ -1328,6 +1333,8 @@ function renderResTable(){
       const nNF = r.nNF || d.nNF || '—';
       const emit= r.xNomeEmit || d.cnpj || '—';
       const dets = getDetItems(r);
+      const idx  = S.results.indexOf(r);
+      const chaveAbrev = r.chave ? `${r.chave.slice(0,10)}…${r.chave.slice(-4)}` : '—';
       if(!dets.length) return [`<tr>
         <td class="num">${++rowNum}</td>
         <td class="mono" style="font-size:.78rem;">${nNF}</td>
@@ -1335,6 +1342,8 @@ function renderResTable(){
         <td>${uf}</td>
         <td style="font-size:.78rem;">${dt}</td>
         <td colspan="6" style="color:var(--muted);font-size:.78rem;">Sem itens disponíveis</td>
+        <td class="mono" style="font-size:.72rem;cursor:help;white-space:nowrap;" title="${r.chave||''}">${chaveAbrev}</td>
+        <td><button class="btn btn-ghost btn-sm" style="font-size:.72rem;white-space:nowrap;" onclick="showDetail(${idx})" title="${r.chave||''}">🔍 Re-consultar</button></td>
       </tr>`];
       return dets.map(det=>{
         const p = det.prod||{};
@@ -1350,6 +1359,8 @@ function renderResTable(){
           <td style="font-size:.78rem;">${p.uCom||'—'}</td>
           <td style="font-size:.78rem;white-space:nowrap;">${fmtBRL(parseFloat(p.vUnCom||0))}</td>
           <td style="font-size:.82rem;font-weight:600;color:var(--text);white-space:nowrap;">${fmtBRL(parseFloat(p.vProd||0))}</td>
+          <td class="mono" style="font-size:.72rem;cursor:help;white-space:nowrap;" title="${r.chave||''}">${chaveAbrev}</td>
+          <td><button class="btn btn-ghost btn-sm" style="font-size:.72rem;white-space:nowrap;" onclick="showDetail(${idx})" title="${r.chave||''}">🔍 Re-consultar</button></td>
         </tr>`;
       });
     }).join('');
@@ -1359,11 +1370,16 @@ function renderResTable(){
     document.getElementById('tbl-footer').style.display = 'block';
     const sc = document.getElementById('srch-count');
     if(sc) sc.textContent = S.filtered ? `${list.length} NF-e(s) filtrada(s)` : `${S.results.length} NF-e(s)`;
+    const uniqueChaves = new Set(list.map(r=>r.chave)).size;
+    const pc = document.getElementById('prod-counter');
+    if(pc){ pc.style.display='block'; pc.textContent=`${rowNum} produto(s) de ${uniqueChaves} nota(s) distintas`; }
     requestAnimationFrame(()=>initResizableCols('res-table'));
     return;
   }
 
   // ── NF-e mode ──
+  const pcNfe = document.getElementById('prod-counter');
+  if(pcNfe) pcNfe.style.display='none';
   document.getElementById('res-thead').innerHTML = `<tr>
     <th style="width:38px;">#</th>
     <th style="width:130px;">Chave de Acesso</th>
@@ -1483,7 +1499,10 @@ function showDetail(i){
   </div>
 
   <div style="margin-bottom:1rem;">
-    <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:.5rem;">Chave de Acesso</div>
+    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;">
+      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Chave de Acesso</div>
+      <button class="btn btn-ghost btn-sm" style="font-size:.72rem;padding:.15rem .5rem;" onclick="navigator.clipboard.writeText('${r.chave}').then(()=>toast('Chave copiada!'))">📋 Copiar Chave</button>
+    </div>
     <div style="font-family:'DM Mono',monospace;font-size:.78rem;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.6rem .8rem;word-break:break-all;color:var(--text2);">${r.chave}</div>
   </div>
 

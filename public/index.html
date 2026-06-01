@@ -1532,7 +1532,7 @@ function getDetItems(r){
 }
 
 function buildRowsProduto(list){
-  const hdr = ['#','N NF-e','Emitente','UF','Emissao','Cod. Produto','Produto','Qtd','Unid','Vl. Unitario (R$)','Vl. Total Item (R$)'];
+  const hdr = ['#','N NF-e','Emitente','UF','Emissao','Cod. Produto','Produto','Qtd','Unid','Vl. Unitario (R$)','Vl. Total Item (R$)','Chave de Acesso'];
   const rows = [hdr];
   let n = 0;
   list.forEach(r=>{
@@ -1541,13 +1541,14 @@ function buildRowsProduto(list){
     const emit = r.xNomeEmit||'';
     const uf = r.ufEmit||d.uf||'';
     const dt = r.dhEmi ? new Date(r.dhEmi).toLocaleDateString('pt-BR') : (d.dataEmissao||'');
+    const chave = r.chave||'';
     const dets = getDetItems(r);
     if(!dets.length){
-      rows.push([++n,nNF,emit,uf,dt,'','','','','','']);
+      rows.push([++n,nNF,emit,uf,dt,'','','','','','',chave]);
     } else {
       dets.forEach(det=>{
         const p = det.prod||{};
-        rows.push([++n,nNF,emit,uf,dt,p.cProd||'',p.xProd||'',parseFloat(p.qCom||0)||'',p.uCom||'',parseFloat(p.vUnCom||0)||'',parseFloat(p.vProd||0)||'']);
+        rows.push([++n,nNF,emit,uf,dt,p.cProd||'',p.xProd||'',parseFloat(p.qCom||0)||'',p.uCom||'',parseFloat(p.vUnCom||0)||'',parseFloat(p.vProd||0)||'',chave]);
       });
     }
   });
@@ -1593,7 +1594,7 @@ function exportar(mode='all'){
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   if(isProd){
-    ws['!cols']=[{wch:4},{wch:12},{wch:30},{wch:5},{wch:12},{wch:14},{wch:40},{wch:10},{wch:6},{wch:16},{wch:16}];
+    ws['!cols']=[{wch:4},{wch:12},{wch:30},{wch:5},{wch:12},{wch:14},{wch:40},{wch:10},{wch:6},{wch:16},{wch:16},{wch:46}];
   } else {
     ws['!cols']=[{wch:4},{wch:46},{wch:30},{wch:20},{wch:5},{wch:28},{wch:20},
       {wch:10},{wch:6},{wch:10},{wch:12},{wch:40},{wch:14},{wch:14},

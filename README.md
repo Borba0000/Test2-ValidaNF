@@ -6,12 +6,18 @@ Aplicativo web para validação de Notas Fiscais Eletrônicas via API SERPRO (Co
 
 A exportação por nota inclui a coluna **Valor do frete (R$)**, extraída de
 `infNFe.total.ICMSTot.vFrete` na resposta do SERPRO. Valores ausentes, vazios ou
-inválidos ficam em branco; zero declarado é preservado como `0,00`. O frete não
+inválidos mostram **frete não discriminado**; zero declarado é preservado como `0,00`. O frete não
 é calculado a partir de outros totais ou dos itens.
 
 Na exportação por produto, **Frete total da NF-e (R$)** aparece apenas na primeira
 linha de cada nota, evitando duplicidade na soma. As duas opções também se aplicam
-à exportação filtrada. O fluxo NFC-e atual não fornece frete e deixa a célula vazia.
+à exportação filtrada. O fluxo NFC-e atual não fornece frete e mostra **frete não discriminado**.
+
+A coluna **Informações adicionais / Descrição** contém o texto integral de
+`infNFe.infAdic.infCpl` (Informações Complementares de Interesse do Contribuinte),
+incluindo observações e endereço de entrega quando escritos nesse campo. Na
+exportação por produto, o texto acompanha cada linha para facilitar os filtros.
+Quando não informado, fica vazio. Não utiliza `infAdFisco` como substituto.
 
 Referência: [campos autorizados pelo SERPRO](https://apicenter.estaleiro.serpro.gov.br/documentacao/consulta-nfe/pt/faq/#quais-os-campos-da-nf-e-estao-autorizados-na-anuencia).
 

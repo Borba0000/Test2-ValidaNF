@@ -972,6 +972,7 @@ function parseSERPROData(data, chave){
     mod      : ide.mod||'',
     vNF      : vNF,
     vFrete   : Number.isFinite(vFrete) ? vFrete : null,
+    infCpl   : typeof inf?.infAdic?.infCpl === 'string' ? inf.infAdic.infCpl : '',
     produtos : prods,
     qtds     : qtds,
     _raw     : data
@@ -1537,7 +1538,7 @@ function getDetItems(r){
 }
 
 function buildRowsProduto(list){
-  const hdr = ['#','N NF-e','Emitente','UF','Emissao','Cod. Produto','Produto','Qtd','Unid','Vl. Unitario (R$)','Vl. Total Item (R$)','Chave de Acesso','Frete total da NF-e (R$)'];
+  const hdr = ['#','N NF-e','Emitente','UF','Emissao','Cod. Produto','Produto','Qtd','Unid','Vl. Unitario (R$)','Vl. Total Item (R$)','Chave de Acesso','Frete total da NF-e (R$)','Informações adicionais / Descrição'];
   const rows = [hdr];
   let n = 0;
   list.forEach(r=>{
@@ -1549,12 +1550,12 @@ function buildRowsProduto(list){
     const chave = r.chave||'';
     const dets = getDetItems(r);
     if(!dets.length){
-      rows.push([++n,nNF,emit,uf,dt,'','','','','','',chave,r.vFrete ?? null]);
+      rows.push([++n,nNF,emit,uf,dt,'','','','','','',chave,r.vFrete ?? 'frete não discriminado',r.infCpl || '']);
     } else {
       dets.forEach((det, itemIndex)=>{
         const p = det.prod||{};
         // Registra o total uma vez por nota, sem duplicá-lo entre produtos.
-        rows.push([++n,nNF,emit,uf,dt,p.cProd||'',p.xProd||'',parseFloat(p.qCom||0)||'',p.uCom||'',parseFloat(p.vUnCom||0)||'',parseFloat(p.vProd||0)||'',chave,itemIndex === 0 ? (r.vFrete ?? null) : null]);
+        rows.push([++n,nNF,emit,uf,dt,p.cProd||'',p.xProd||'',parseFloat(p.qCom||0)||'',p.uCom||'',parseFloat(p.vUnCom||0)||'',parseFloat(p.vProd||0)||'',chave,r.vFrete == null ? 'frete não discriminado' : (itemIndex === 0 ? r.vFrete : null),r.infCpl || '']);
       });
     }
   });
@@ -1564,7 +1565,7 @@ function buildRowsProduto(list){
 function buildRows(list){
   const hdr = ['#','Chave de Acesso','Emitente','CNPJ Emitente','UF Emitente',
     'Destinatario','CNPJ/CPF Dest.','N NF-e','Serie','Modelo','Emissao',
-    'Produtos','Qtd/Unid','Valor Total (R$)','cStat','Situacao','Protocolo','Data Recebimento','Valor do frete (R$)'];
+    'Produtos','Qtd/Unid','Valor Total (R$)','cStat','Situacao','Protocolo','Data Recebimento','Valor do frete (R$)','Informações adicionais / Descrição'];
   const rows = [hdr];
   list.forEach((r,i)=>{
     const d = r.decoded||{};
@@ -1587,7 +1588,8 @@ function buildRows(list){
       SM[r.cStat]||r.cStat||'',
       r.nProt||'',
       r.dhRecbto ? new Date(r.dhRecbto).toLocaleString('pt-BR') : '',
-      r.vFrete ?? null
+      r.vFrete ?? 'frete não discriminado',
+      r.infCpl || ''
     ]);
   });
   return rows;
@@ -1601,16 +1603,16 @@ function exportar(mode='all'){
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   if(isProd){
-    ws['!cols']=[{wch:4},{wch:12},{wch:30},{wch:5},{wch:12},{wch:14},{wch:40},{wch:10},{wch:6},{wch:16},{wch:16},{wch:46},{wch:26}];
+    ws['!cols']=[{wch:4},{wch:12},{wch:30},{wch:5},{wch:12},{wch:14},{wch:40},{wch:10},{wch:6},{wch:16},{wch:16},{wch:46},{wch:26},{wch:70}];
   } else {
     ws['!cols']=[{wch:4},{wch:46},{wch:30},{wch:20},{wch:5},{wch:28},{wch:20},
       {wch:10},{wch:6},{wch:10},{wch:12},{wch:40},{wch:14},{wch:14},
-      {wch:6},{wch:16},{wch:22},{wch:22},{wch:22}];
+      {wch:6},{wch:16},{wch:22},{wch:22},{wch:26},{wch:70}];
   }
   const range = XLSX.utils.decode_range(ws['!ref']);
-  // Mantém o frete numérico, com centavos, e deixa ausências sem célula.
+  // Formata apenas o frete numérico, preservando o texto de ausência.
   for(let R=1; R<=range.e.r; R++){
-    const cell = ws[XLSX.utils.encode_cell({r:R,c:rows[0].length-1})];
+    const cell = ws[XLSX.utils.encode_cell({r:R,c:rows[0].length-2})];
     if(cell?.t === 'n') cell.z = '#,##0.00';
   }
   for(let C=range.s.c; C<=range.e.c; C++){

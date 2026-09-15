@@ -29,7 +29,7 @@ function response(total = {}, det = []) {
   };
 }
 
-test('preserva frete declarado, inclusive zero, e mantém ausência em branco', () => {
+test('preserva frete declarado, inclusive zero, e identifica frete não discriminado', () => {
   const { app } = loadApp();
   const cases = [
     [125.75, 125.75], ['125.75', 125.75], [0, 0], ['0.00', 0],
@@ -40,8 +40,8 @@ test('preserva frete declarado, inclusive zero, e mantém ausência em branco', 
     const result = app.parseSERPROData(response({ vFrete: input }), 'chave');
     assert.equal(result.vFrete, expected, `frete recebido: ${String(input)}`);
     const rows = app.buildRows([result]);
-    assert.equal(rows[0].at(-1), 'Valor do frete (R$)');
-    assert.equal(rows[1].at(-1), expected);
+    assert.equal(rows[0].at(-2), 'Valor do frete (R$)');
+    assert.equal(rows[1].at(-2), expected ?? 'frete não discriminado');
     assert.equal(rows[1][13], 500, 'valor total original preservado');
     assert.equal(rows[1][14], '100', 'posição original do status preservada');
   }
@@ -62,8 +62,8 @@ test('não infere frete de itens, diferença de totais, erro ou consulta NFC-e',
     assert.equal(app.parseSERPROData(input, 'chave').vFrete, null);
   }
   for (const result of [{ cStat: 'ERR' }, { cStat: '100', mod: '65' }]) {
-    assert.equal(app.buildRows([result])[1].at(-1), null);
-    assert.equal(app.buildRowsProduto([result])[1].at(-1), null);
+    assert.equal(app.buildRows([result])[1].at(-2), 'frete não discriminado');
+    assert.equal(app.buildRowsProduto([result])[1].at(-2), 'frete não discriminado');
   }
 });
 
@@ -77,11 +77,11 @@ test('exportação por produto registra frete uma vez por nota, inclusive sem it
     app.parseSERPROData(response({}, products), 'quarta')
   ];
   const rows = app.buildRowsProduto(results);
-  assert.equal(rows[0].at(-1), 'Frete total da NF-e (R$)');
-  assert.deepEqual(Array.from(rows.slice(1), row => row.at(-1)), [30, null, 0, null, 12.5, null, null]);
+  assert.equal(rows[0].at(-2), 'Frete total da NF-e (R$)');
+  assert.deepEqual(Array.from(rows.slice(1), row => row.at(-2)), [30, null, 0, null, 12.5, 'frete não discriminado', 'frete não discriminado']);
   assert.equal(rows[1][5], 'A');
   assert.equal(rows[2][5], 'B');
-  assert.ok(rows.every(row => row.length === 13));
+  assert.ok(rows.every(row => row.length === 14));
 });
 
 test('exportação completa e filtrada inclui frete numérico com duas casas decimais', () => {
@@ -118,12 +118,36 @@ test('exportação completa e filtrada inclui frete numérico com duas casas dec
     assert.equal(exported[`1:${col}`].v, 19.9);
     assert.equal(exported[`1:${col}`].z, '#,##0.00');
     assert.equal(exported[`2:${col}`].v, 0);
-    assert.equal(exported[`3:${col}`], undefined);
+    assert.equal(exported[`3:${col}`].v, 'frete não discriminado');
+    assert.equal(exported[`3:${col}`].t, 's');
     app.exportar('filtered');
     assert.equal(exported[`1:${col}`].v, 0);
     assert.equal(exported[`1:${col}`].t, 'n');
     assert.equal(exported[`1:${col}`].z, '#,##0.00');
-    assert.equal(exported[`2:${col}`], undefined);
-    assert.equal(exported['!cols'].length, col + 1);
+    assert.equal(exported[`2:${col}`].v, 'frete não discriminado');
+    assert.equal(exported[`2:${col}`].t, 's');
+    assert.equal(exported['!cols'].length, col + 2);
+  }
+});
+
+
+test('exporta informações complementares completas, sem modificar texto ou quebras de linha', () => {
+  const { app } = loadApp();
+  const text = 'Entrega: RUA EXEMPLO, 123 - COQUEIROS; CEP: 88080-701\nObservação: manter embalagem.  ';
+  const payload = response({ vFrete: 12.5 }, [{ prod: { cProd: 'A' } }, { prod: { cProd: 'B' } }]);
+  payload.nfeProc.NFe.infNFe.infAdic = { infCpl: text, infAdFisco: 'Texto do fisco não deve substituir a descrição' };
+  for (const data of [payload, payload.nfeProc, { infNFe: payload.nfeProc.NFe.infNFe }]) {
+    const result = app.parseSERPROData(data, 'chave');
+    assert.equal(result.infCpl, text);
+    for (const build of [app.buildRows, app.buildRowsProduto]) {
+      const rows = build([result]);
+      assert.equal(rows[0].at(-1), 'Informações adicionais / Descrição');
+      assert.ok(rows.slice(1).every(row => row.at(-1) === text));
+    }
+  }
+  for (const data of [response(), {}]) {
+    const result = app.parseSERPROData(data, 'chave');
+    assert.equal(result.infCpl, '');
+    assert.equal(app.buildRows([result])[1].at(-1), '');
   }
 });

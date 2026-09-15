@@ -2,6 +2,21 @@
 
 Aplicativo web para validação de Notas Fiscais Eletrônicas via API SERPRO (Consulta NF-e Direto na Faixa).
 
+## Frete no Excel
+
+A exportação por nota inclui a coluna **Valor do frete (R$)**, extraída de
+`infNFe.total.ICMSTot.vFrete` na resposta do SERPRO. Valores ausentes, vazios ou
+inválidos ficam em branco; zero declarado é preservado como `0,00`. O frete não
+é calculado a partir de outros totais ou dos itens.
+
+Na exportação por produto, **Frete total da NF-e (R$)** aparece apenas na primeira
+linha de cada nota, evitando duplicidade na soma. As duas opções também se aplicam
+à exportação filtrada. O fluxo NFC-e atual não fornece frete e deixa a célula vazia.
+
+Referência: [campos autorizados pelo SERPRO](https://apicenter.estaleiro.serpro.gov.br/documentacao/consulta-nfe/pt/faq/#quais-os-campos-da-nf-e-estao-autorizados-na-anuencia).
+
+Verificação local, sem consultas externas: `npm test`.
+
 ## 🚀 Deploy no Vercel (recomendado)
 
 ### 1. Suba para o GitHub

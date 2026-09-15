@@ -948,6 +948,10 @@ function parseSERPROData(data, chave){
   }).filter(Boolean);
 
   const vNF   = parseFloat(total?.vNF || 0);
+  // Frete declarado no total da NF-e: ausência não significa zero.
+  const frete = total.vFrete;
+  const vFrete = typeof frete === 'number' || (typeof frete === 'string' && frete.trim() !== '')
+    ? Number(frete) : NaN;
   const dhEmi = ide?.dhEmi || ide?.dEmi || '';
 
   return {
@@ -967,6 +971,7 @@ function parseSERPROData(data, chave){
     dhEmi    : dhEmi,
     mod      : ide.mod||'',
     vNF      : vNF,
+    vFrete   : Number.isFinite(vFrete) ? vFrete : null,
     produtos : prods,
     qtds     : qtds,
     _raw     : data
@@ -1532,7 +1537,7 @@ function getDetItems(r){
 }
 
 function buildRowsProduto(list){
-  const hdr = ['#','N NF-e','Emitente','UF','Emissao','Cod. Produto','Produto','Qtd','Unid','Vl. Unitario (R$)','Vl. Total Item (R$)','Chave de Acesso'];
+  const hdr = ['#','N NF-e','Emitente','UF','Emissao','Cod. Produto','Produto','Qtd','Unid','Vl. Unitario (R$)','Vl. Total Item (R$)','Chave de Acesso','Frete total da NF-e (R$)'];
   const rows = [hdr];
   let n = 0;
   list.forEach(r=>{
@@ -1544,11 +1549,12 @@ function buildRowsProduto(list){
     const chave = r.chave||'';
     const dets = getDetItems(r);
     if(!dets.length){
-      rows.push([++n,nNF,emit,uf,dt,'','','','','','',chave]);
+      rows.push([++n,nNF,emit,uf,dt,'','','','','','',chave,r.vFrete ?? null]);
     } else {
-      dets.forEach(det=>{
+      dets.forEach((det, itemIndex)=>{
         const p = det.prod||{};
-        rows.push([++n,nNF,emit,uf,dt,p.cProd||'',p.xProd||'',parseFloat(p.qCom||0)||'',p.uCom||'',parseFloat(p.vUnCom||0)||'',parseFloat(p.vProd||0)||'',chave]);
+        // Registra o total uma vez por nota, sem duplicá-lo entre produtos.
+        rows.push([++n,nNF,emit,uf,dt,p.cProd||'',p.xProd||'',parseFloat(p.qCom||0)||'',p.uCom||'',parseFloat(p.vUnCom||0)||'',parseFloat(p.vProd||0)||'',chave,itemIndex === 0 ? (r.vFrete ?? null) : null]);
       });
     }
   });
@@ -1558,7 +1564,7 @@ function buildRowsProduto(list){
 function buildRows(list){
   const hdr = ['#','Chave de Acesso','Emitente','CNPJ Emitente','UF Emitente',
     'Destinatario','CNPJ/CPF Dest.','N NF-e','Serie','Modelo','Emissao',
-    'Produtos','Qtd/Unid','Valor Total (R$)','cStat','Situacao','Protocolo','Data Recebimento'];
+    'Produtos','Qtd/Unid','Valor Total (R$)','cStat','Situacao','Protocolo','Data Recebimento','Valor do frete (R$)'];
   const rows = [hdr];
   list.forEach((r,i)=>{
     const d = r.decoded||{};
@@ -1580,7 +1586,8 @@ function buildRows(list){
       r.cStat||'',
       SM[r.cStat]||r.cStat||'',
       r.nProt||'',
-      r.dhRecbto ? new Date(r.dhRecbto).toLocaleString('pt-BR') : ''
+      r.dhRecbto ? new Date(r.dhRecbto).toLocaleString('pt-BR') : '',
+      r.vFrete ?? null
     ]);
   });
   return rows;
@@ -1594,13 +1601,18 @@ function exportar(mode='all'){
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   if(isProd){
-    ws['!cols']=[{wch:4},{wch:12},{wch:30},{wch:5},{wch:12},{wch:14},{wch:40},{wch:10},{wch:6},{wch:16},{wch:16},{wch:46}];
+    ws['!cols']=[{wch:4},{wch:12},{wch:30},{wch:5},{wch:12},{wch:14},{wch:40},{wch:10},{wch:6},{wch:16},{wch:16},{wch:46},{wch:26}];
   } else {
     ws['!cols']=[{wch:4},{wch:46},{wch:30},{wch:20},{wch:5},{wch:28},{wch:20},
       {wch:10},{wch:6},{wch:10},{wch:12},{wch:40},{wch:14},{wch:14},
-      {wch:6},{wch:16},{wch:22},{wch:22}];
+      {wch:6},{wch:16},{wch:22},{wch:22},{wch:22}];
   }
   const range = XLSX.utils.decode_range(ws['!ref']);
+  // Mantém o frete numérico, com centavos, e deixa ausências sem célula.
+  for(let R=1; R<=range.e.r; R++){
+    const cell = ws[XLSX.utils.encode_cell({r:R,c:rows[0].length-1})];
+    if(cell?.t === 'n') cell.z = '#,##0.00';
+  }
   for(let C=range.s.c; C<=range.e.c; C++){
     const cell = ws[XLSX.utils.encode_cell({r:0,c:C})];
     if(cell) cell.s = {font:{bold:true},fill:{fgColor:{rgb:'0F2845'}},font:{color:{rgb:'FFFFFF'},bold:true}};
